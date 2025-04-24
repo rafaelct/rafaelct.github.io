@@ -3,75 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogo Estilo Minecraft Básico (Blocos Pequenos)</title>
+    <title>Jogo Estilo Minecraft Básico (Velocidade Reduzida)</title>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden; /* Evita barras de rolagem */
-            font-family: 'Arial', sans-serif; /* Fonte padrão */
-            background-color: #add8e6; /* Cor do céu */
-        }
-        canvas {
-            display: block; /* Remove espaço extra abaixo da canvas */
-            width: 100%;
-            height: 100%;
-        }
-        #instructions {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background-color: rgba(0, 0, 0, 0.5);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 14px;
-            z-index: 10; /* Garante que fique acima da canvas */
-        }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 4px; /* Ajustado para um + mais visível */
-            height: 4px;
-            background-color: rgba(255, 255, 255, 0.8); /* Branco semitransparente */
-            border: 1px solid rgba(0, 0, 0, 0.5); /* Borda escura */
-            transform: translate(-50%, -50%);
-            pointer-events: none; /* Não interfere com cliques do mouse */
-            z-index: 10;
-        }
-        /* Estilo para caixa de mensagem */
-        #messageBox {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            padding: 20px;
-            background-color: rgba(0, 0, 0, 0.8);
-            color: white;
-            border-radius: 10px;
-            text-align: center;
-            display: none; /* Escondido por padrão */
-            z-index: 1000;
-        }
-        #messageBox button {
-            margin-top: 15px;
-            padding: 8px 15px;
-            border: none;
-            border-radius: 5px;
-            background-color: #4CAF50;
-            color: white;
-            cursor: pointer;
-        }
-        #messageBox button:hover {
-            background-color: #45a049;
-        }
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; background-color: #add8e6; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #instructions { position: absolute; top: 10px; left: 10px; background-color: rgba(0,0,0,0.5); color: white; padding: 10px; border-radius: 5px; font-size: 14px; z-index: 10; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background-color: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.5); transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
+        #messageBox { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 20px; background-color: rgba(0,0,0,0.8); color: white; border-radius: 10px; text-align: center; display: none; z-index: 1000; }
+        #messageBox button { margin-top: 15px; padding: 8px 15px; border: none; border-radius: 5px; background-color: #4CAF50; color: white; cursor: pointer; }
+        #messageBox button:hover { background-color: #45a049; }
     </style>
 </head>
 <body>
     <div id="instructions">
         W, A, S, D: Mover<br>
-        Q: Subir<br>
-        E: Descer<br>
+        Espaço / Q: Pular<br>
         Mouse: Olhar<br>
         Clique Esquerdo: Remover Bloco<br>
         Clique Direito: Adicionar Bloco<br>
@@ -79,12 +25,10 @@
     </div>
 
     <div id="crosshair"></div>
-
     <div id="messageBox">
         <p id="messageText"></p>
         <button onclick="hideMessage()">OK</button>
     </div>
-
     <canvas id="gameCanvas"></canvas>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -93,35 +37,45 @@
     <script>
         // --- Variáveis Globais ---
         let scene, camera, renderer, controls;
-        let objects = []; // Array para armazenar os blocos do mundo
-        const worldSize = 20; // Número de blocos em cada dimensão
-        const blockSize = 0.25; // *** TAMANHO DO BLOCO ALTERADO AQUI ***
+        let objects = [];
+        const worldSize = 20;
+        const blockSize = 0.25;
 
-        // Movimento
+        // --- Jogador ---
+        const playerHeight = blockSize * 1.8;
+        const playerWidth = blockSize * 0.8;
+        const playerHalfWidth = playerWidth / 2;
+        const playerHalfHeight = playerHeight / 2;
+        let playerOnGround = false;
+        const groundCheckTolerance = 0.01;
+
+        // --- Movimento ---
         let moveForward = false;
         let moveBackward = false;
         let moveLeft = false;
         let moveRight = false;
-        let moveUp = false;
-        let moveDown = false;
+        let wantsToJump = false;
 
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
+        const gravity = -20.0;
+        const jumpVelocity = 8.0;
+        const moveSpeed = 3.0; // *** VELOCIDADE ALTERADA AQUI ***
 
-        // Interação com Blocos
+        // Vetores auxiliares
+        const _forwardVector = new THREE.Vector3();
+        const _rightVector = new THREE.Vector3();
+
+        // --- Interação ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
-        const interactionDistance = 4; // *** DISTÂNCIA DE INTERAÇÃO AJUSTADA ***
+        const interactionDistance = 4;
 
-        // Texturas
+        // --- Texturas e Materiais ---
         const textureLoader = new THREE.TextureLoader();
-
-        // Função para criar textura placeholder caso a imagem falhe
         function createPlaceholderTexture(color) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 16;
-            canvas.height = 16;
+             const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
             const context = canvas.getContext('2d');
             context.fillStyle = '#' + color.toString(16).padStart(6, '0');
             context.fillRect(0, 0, 16, 16);
@@ -129,21 +83,13 @@
             texture.magFilter = THREE.NearestFilter;
             return texture;
         }
-
-        // Carrega a textura de tijolo com fallback
         const brickTexture = textureLoader.load(
-            'https://threejs.org/examples/textures/brick_diffuse.jpg',
+             'https://threejs.org/examples/textures/brick_diffuse.jpg',
             undefined, undefined,
-            () => {
-                console.error("Falha ao carregar textura de tijolo.");
-                return createPlaceholderTexture(0xb7410e);
-            }
+            () => { console.error("Falha ao carregar textura de tijolo."); return createPlaceholderTexture(0xb7410e); }
         );
-
         brickTexture.magFilter = THREE.NearestFilter;
         brickTexture.minFilter = THREE.LinearMipmapLinearFilter;
-
-        // --- Materiais ---
         const brickBlockMaterial = new THREE.MeshLambertMaterial({ map: brickTexture });
 
         // --- Funções ---
@@ -152,11 +98,10 @@
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xadd8e6);
-            scene.fog = new THREE.Fog(0xadd8e6, 0, 100); // Diminuir alcance da névoa
+            scene.fog = new THREE.Fog(0xadd8e6, 0, 100);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            // Ajusta a posição inicial da câmera
-            camera.position.set(worldSize * blockSize / 2, 3, worldSize * blockSize / 2); // Começa um pouco mais baixo
+            camera.position.set(worldSize * blockSize / 2, playerHeight, worldSize * blockSize / 2);
 
             const canvas = document.getElementById('gameCanvas');
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -166,29 +111,22 @@
 
             const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
             scene.add(ambientLight);
-
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(50, 200, 100);
             directionalLight.castShadow = true;
-            // Ajusta a câmera de sombra para o novo tamanho do mundo
-            const shadowCamSize = worldSize * blockSize * 1.5; // Aumenta um pouco a área da sombra para evitar cortes
-            directionalLight.shadow.mapSize.width = 2048;
-            directionalLight.shadow.mapSize.height = 2048;
-            directionalLight.shadow.camera.near = 0.5;
-            directionalLight.shadow.camera.far = 500;
-            directionalLight.shadow.camera.left = -shadowCamSize;
-            directionalLight.shadow.camera.right = shadowCamSize;
-            directionalLight.shadow.camera.top = shadowCamSize;
-            directionalLight.shadow.camera.bottom = -shadowCamSize;
+            const shadowCamSize = worldSize * blockSize * 1.5;
+            directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 500;
+            directionalLight.shadow.camera.left = -shadowCamSize; directionalLight.shadow.camera.right = shadowCamSize;
+            directionalLight.shadow.camera.top = shadowCamSize; directionalLight.shadow.camera.bottom = -shadowCamSize;
             scene.add(directionalLight);
-            // scene.add(new THREE.CameraHelper(directionalLight.shadow.camera)); // Descomente para depurar sombra
 
             controls = new THREE.PointerLockControls(camera, document.body);
+            scene.add(controls.getObject());
 
             document.body.addEventListener('click', () => { if (!controls.isLocked) controls.lock(); });
             controls.addEventListener('lock', () => { document.getElementById('instructions').style.display = 'none'; });
             controls.addEventListener('unlock', () => { document.getElementById('instructions').style.display = 'block'; });
-            scene.add(controls.getObject());
 
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
@@ -199,45 +137,48 @@
             animate();
         }
 
-        // Gera o terreno inicial (plano)
+        // Gera o mundo inicial
         function generateWorld() {
-            // A geometria agora usa o novo blockSize (0.25)
-            const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+             const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
             for (let x = 0; x < worldSize; x++) {
                 for (let z = 0; z < worldSize; z++) {
                     const y = 0;
                     const cube = new THREE.Mesh(geometry, brickBlockMaterial);
-                    // A posição também usa o novo blockSize
                     cube.position.set(x * blockSize, y * blockSize, z * blockSize);
-                    cube.castShadow = true;
-                    cube.receiveShadow = true;
+                    cube.castShadow = true; cube.receiveShadow = true;
                     cube.userData.isBlock = true;
+                    cube.userData.boundingBox = new THREE.Box3().setFromObject(cube);
                     scene.add(cube);
                     objects.push(cube);
                 }
             }
         }
 
-        // Adiciona um bloco na posição correta
+        // Adiciona um bloco
         function addBlock(intersect) {
-            if (!intersect) return;
-            // Geometria usa o novo blockSize
+             if (!intersect) return;
             const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
             const newCube = new THREE.Mesh(geometry, brickBlockMaterial);
             const newPosition = intersect.object.position.clone();
-            // O deslocamento usa o novo blockSize
             newPosition.add(intersect.face.normal.multiplyScalar(blockSize));
-
-            // O arredondamento para a grade também usa o novo blockSize
             newPosition.x = Math.round(newPosition.x / blockSize) * blockSize;
             newPosition.y = Math.round(newPosition.y / blockSize) * blockSize;
             newPosition.z = Math.round(newPosition.z / blockSize) * blockSize;
 
+            const playerBox = getPlayerBoundingBox(controls.getObject().position);
+            const newCubeBox = new THREE.Box3(
+                new THREE.Vector3(newPosition.x - blockSize/2, newPosition.y - blockSize/2, newPosition.z - blockSize/2),
+                new THREE.Vector3(newPosition.x + blockSize/2, newPosition.y + blockSize/2, newPosition.z + blockSize/2)
+            );
+            if (playerBox.intersectsBox(newCubeBox)) {
+                showMessage("Não é possível colocar um bloco aqui.");
+                return;
+            }
             if (objects.some(obj => obj.position.equals(newPosition))) return;
             newCube.position.copy(newPosition);
-            newCube.castShadow = true;
-            newCube.receiveShadow = true;
+            newCube.castShadow = true; newCube.receiveShadow = true;
             newCube.userData.isBlock = true;
+            newCube.userData.boundingBox = new THREE.Box3().setFromObject(newCube);
             scene.add(newCube);
             objects.push(newCube);
         }
@@ -251,95 +192,166 @@
             if (intersect.object.geometry) intersect.object.geometry.dispose();
         }
 
-        // Encontra o bloco que o jogador está a olhar
+        // Pega a interseção do raio
         function getIntersection() {
             if (!controls.isLocked) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             const intersects = raycaster.intersectObjects(objects, false);
             if (intersects.length > 0) {
                 const intersection = intersects[0];
-                 // Usa a distância de interação ajustada
-                 if (intersection.distance < interactionDistance) return intersection; // *** ALTERADO AQUI ***
+                 if (intersection.distance < interactionDistance) return intersection;
             }
             return null;
         }
 
-        // Event Handler para Teclas Pressionadas
+        // --- Funções de Colisão ---
+
+        // Retorna a Bounding Box do jogador
+        function getPlayerBoundingBox(position) {
+             return new THREE.Box3(
+                new THREE.Vector3(position.x - playerHalfWidth, position.y - playerHalfHeight, position.z - playerHalfWidth),
+                new THREE.Vector3(position.x + playerHalfWidth, position.y + playerHalfHeight, position.z + playerHalfWidth)
+            );
+        }
+
+        // Verifica colisão para um movimento específico (vetor de deslocamento)
+        function checkCollisionForMove(currentPos, moveDelta) {
+            const checkPos = currentPos.clone();
+            checkPos.y += groundCheckTolerance * 2;
+            const targetPos = checkPos.clone().add(moveDelta);
+            const targetBox = getPlayerBoundingBox(targetPos);
+            targetBox.min.y = currentPos.y - playerHalfHeight + groundCheckTolerance;
+
+            for (const block of objects) {
+                if (targetPos.distanceToSquared(block.position) < (blockSize * 3)**2) {
+                    if (targetBox.intersectsBox(block.userData.boundingBox)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+
+        // --- Event Handlers ---
         function onKeyDown(event) {
-            switch (event.code) {
+             switch (event.code) {
                 case 'ArrowUp': case 'KeyW': moveForward = true; break;
                 case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
                 case 'ArrowDown': case 'KeyS': moveBackward = true; break;
                 case 'ArrowRight': case 'KeyD': moveRight = true; break;
-                case 'KeyQ': moveUp = true; break;
-                case 'KeyE': moveDown = true; break;
+                case 'Space': case 'KeyQ': wantsToJump = true; break;
                 case 'Escape': if (controls.isLocked) controls.unlock(); break;
             }
         }
-
-        // Event Handler para Teclas Soltas
         function onKeyUp(event) {
-            switch (event.code) {
+             switch (event.code) {
                 case 'ArrowUp': case 'KeyW': moveForward = false; break;
                 case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
                 case 'ArrowDown': case 'KeyS': moveBackward = false; break;
                 case 'ArrowRight': case 'KeyD': moveRight = false; break;
-                case 'KeyQ': moveUp = false; break;
-                case 'KeyE': moveDown = false; break;
+                case 'Space': case 'KeyQ': wantsToJump = false; break;
             }
         }
-
-        // Event Handler para Cliques do Mouse
         function onMouseDown(event) {
-            if (!controls.isLocked) return;
+              if (!controls.isLocked) return;
             const intersect = getIntersection();
             if (!intersect) return;
             switch (event.button) {
-                case 0: removeBlock(intersect); break; // Esquerdo - Remover
-                case 2: addBlock(intersect); break;    // Direito - Adicionar
+                case 0: removeBlock(intersect); break;
+                case 2: addBlock(intersect); break;
             }
         }
-
-        // Ajusta a câmera e o renderer ao redimensionar a janela
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
+             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // Loop de Animação
+        // --- Loop de Animação ---
         function animate() {
             requestAnimationFrame(animate);
             const time = performance.now();
+            const delta = Math.min(0.1, (time - prevTime) / 1000);
 
             if (controls.isLocked === true) {
-                const delta = (time - prevTime) / 1000;
+                const currentPos = controls.getObject().position;
 
-                velocity.x -= velocity.x * 10.0 * delta;
-                velocity.z -= velocity.z * 10.0 * delta;
+                // --- 1. Movimento Vertical ---
+                if (playerOnGround) {
+                    velocity.y = 0;
+                }
+                if (wantsToJump && playerOnGround) {
+                    velocity.y = jumpVelocity;
+                    playerOnGround = false;
+                }
+                if (!playerOnGround) {
+                     velocity.y += gravity * delta;
+                }
 
-                direction.z = Number(moveForward) - Number(moveBackward);
-                direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize();
+                let moveY = velocity.y * delta;
+                let intendedY = currentPos.y + moveY;
+                const verticalMoveDelta = new THREE.Vector3(0, moveY, 0);
+                const targetPosY = currentPos.clone().add(verticalMoveDelta);
+                const targetBoxY = getPlayerBoundingBox(targetPosY);
+                let verticalCollisionOccurred = false;
+                playerOnGround = false;
 
-                // Velocidades ajustadas para a nova escala
-                const moveSpeed = 20.0; // *** AJUSTADO ***
-                const verticalSpeed = 12.5; // *** AJUSTADO ***
+                for (const block of objects) {
+                    if (targetPosY.distanceToSquared(block.position) < (blockSize * 3)**2) {
+                        if (targetBoxY.intersectsBox(block.userData.boundingBox)) {
+                            verticalCollisionOccurred = true;
+                            if (velocity.y <= 0) {
+                                playerOnGround = true;
+                                intendedY = block.userData.boundingBox.max.y + playerHalfHeight + groundCheckTolerance / 2;
+                                velocity.y = 0;
+                            } else {
+                                intendedY = block.userData.boundingBox.min.y - playerHalfHeight - groundCheckTolerance / 2;
+                                velocity.y = 0;
+                            }
+                            moveY = intendedY - currentPos.y;
+                            break;
+                        }
+                    }
+                }
+                controls.getObject().position.y += moveY;
 
-                if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
-                if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
+                // --- 2. Movimento Horizontal ---
+                const horizontalSpeed = moveSpeed * delta; // Usa a moveSpeed atualizada
+                const forwardDelta = (Number(moveForward) - Number(moveBackward)) * horizontalSpeed;
+                const sidewaysDelta = (Number(moveRight) - Number(moveLeft)) * horizontalSpeed;
 
-                controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
+                if (Math.abs(forwardDelta) > 0.001 || Math.abs(sidewaysDelta) > 0.001) {
+                    controls.getDirection(_forwardVector);
+                    _forwardVector.y = 0;
+                    _forwardVector.normalize();
+                    _rightVector.crossVectors(camera.up, _forwardVector).normalize();
 
-                const verticalDelta = (Number(moveUp) - Number(moveDown)) * verticalSpeed * delta;
-                controls.getObject().position.y += verticalDelta;
-            }
+                    const horizontalStartPos = controls.getObject().position.clone();
+
+                    if (Math.abs(forwardDelta) > 0.001) {
+                        const testForwardMove = _forwardVector.clone().multiplyScalar(forwardDelta);
+                        if (!checkCollisionForMove(horizontalStartPos, testForwardMove)) {
+                            controls.moveForward(forwardDelta);
+                        }
+                    }
+
+                    if (Math.abs(sidewaysDelta) > 0.001) {
+                        const testSidewaysMove = _rightVector.clone().multiplyScalar(sidewaysDelta);
+                        if (!checkCollisionForMove(controls.getObject().position, testSidewaysMove)) {
+                             controls.moveRight(sidewaysDelta);
+                        }
+                    }
+                }
+
+            } // end if (controls.isLocked)
+
             prevTime = time;
             renderer.render(scene, camera);
         }
 
-         // Funções da caixa de mensagem
+
+        // Funções da caixa de mensagem
         function showMessage(text) {
             document.getElementById('messageText').innerText = text;
             document.getElementById('messageBox').style.display = 'block';
@@ -351,7 +363,7 @@
         // --- Iniciar o Jogo ---
         init();
 
-        // Prevenir menu de contexto no clique direito na canvas
+        // Prevenir menu de contexto
         document.getElementById('gameCanvas').addEventListener('contextmenu', (event) => event.preventDefault());
 
     </script>
