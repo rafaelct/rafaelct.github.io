@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo Estilo Minecraft Básico (Blocos Pequenos)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Evita barras de rolagem */
+            font-family: 'Arial', sans-serif; /* Fonte padrão */
+            background-color: #add8e6; /* Cor do céu */
+        }
+        canvas {
+            display: block; /* Remove espaço extra abaixo da canvas */
+            width: 100%;
+            height: 100%;
+        }
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 10; /* Garante que fique acima da canvas */
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px; /* Ajustado para um + mais visível */
+            height: 4px;
+            background-color: rgba(255, 255, 255, 0.8); /* Branco semitransparente */
+            border: 1px solid rgba(0, 0, 0, 0.5); /* Borda escura */
+            transform: translate(-50%, -50%);
+            pointer-events: none; /* Não interfere com cliques do mouse */
+            z-index: 10;
+        }
+        /* Estilo para caixa de mensagem */
+        #messageBox {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 10px;
+            text-align: center;
+            display: none; /* Escondido por padrão */
+            z-index: 1000;
+        }
+        #messageBox button {
+            margin-top: 15px;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        #messageBox button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        W, A, S, D: Mover<br>
+        Q: Subir<br>
+        E: Descer<br>
+        Mouse: Olhar<br>
+        Clique Esquerdo: Remover Bloco<br>
+        Clique Direito: Adicionar Bloco<br>
+        ESC: Liberar/Travar Mouse
+    </div>
+
+    <div id="crosshair"></div>
+
+    <div id="messageBox">
+        <p id="messageText"></p>
+        <button onclick="hideMessage()">OK</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+    <script>
+        // --- Variáveis Globais ---
+        let scene, camera, renderer, controls;
+        let objects = []; // Array para armazenar os blocos do mundo
+        const worldSize = 20; // Número de blocos em cada dimensão
+        const blockSize = 0.25; // *** TAMANHO DO BLOCO ALTERADO AQUI ***
+
+        // Movimento
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let moveUp = false;
+        let moveDown = false;
+
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        // Interação com Blocos
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const interactionDistance = 4; // *** DISTÂNCIA DE INTERAÇÃO AJUSTADA ***
+
+        // Texturas
+        const textureLoader = new THREE.TextureLoader();
+
+        // Função para criar textura placeholder caso a imagem falhe
+        function createPlaceholderTexture(color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16;
+            canvas.height = 16;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#' + color.toString(16).padStart(6, '0');
+            context.fillRect(0, 0, 16, 16);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        // Carrega a textura de tijolo com fallback
+        const brickTexture = textureLoader.load(
+            'https://threejs.org/examples/textures/brick_diffuse.jpg',
+            undefined, undefined,
+            () => {
+                console.error("Falha ao carregar textura de tijolo.");
+                return createPlaceholderTexture(0xb7410e);
+            }
+        );
+
+        brickTexture.magFilter = THREE.NearestFilter;
+        brickTexture.minFilter = THREE.LinearMipmapLinearFilter;
+
+        // --- Materiais ---
+        const brickBlockMaterial = new THREE.MeshLambertMaterial({ map: brickTexture });
+
+        // --- Funções ---
+
+        // Inicialização
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xadd8e6);
+            scene.fog = new THREE.Fog(0xadd8e6, 0, 100); // Diminuir alcance da névoa
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // Ajusta a posição inicial da câmera
+            camera.position.set(worldSize * blockSize / 2, 3, worldSize * blockSize / 2); // Começa um pouco mais baixo
+
+            const canvas = document.getElementById('gameCanvas');
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+
+            const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 200, 100);
+            directionalLight.castShadow = true;
+            // Ajusta a câmera de sombra para o novo tamanho do mundo
+            const shadowCamSize = worldSize * blockSize * 1.5; // Aumenta um pouco a área da sombra para evitar cortes
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 500;
+            directionalLight.shadow.camera.left = -shadowCamSize;
+            directionalLight.shadow.camera.right = shadowCamSize;
+            directionalLight.shadow.camera.top = shadowCamSize;
+            directionalLight.shadow.camera.bottom = -shadowCamSize;
+            scene.add(directionalLight);
+            // scene.add(new THREE.CameraHelper(directionalLight.shadow.camera)); // Descomente para depurar sombra
+
+            controls = new THREE.PointerLockControls(camera, document.body);
+
+            document.body.addEventListener('click', () => { if (!controls.isLocked) controls.lock(); });
+            controls.addEventListener('lock', () => { document.getElementById('instructions').style.display = 'none'; });
+            controls.addEventListener('unlock', () => { document.getElementById('instructions').style.display = 'block'; });
+            scene.add(controls.getObject());
+
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousedown', onMouseDown);
+            window.addEventListener('resize', onWindowResize);
+
+            generateWorld();
+            animate();
+        }
+
+        // Gera o terreno inicial (plano)
+        function generateWorld() {
+            // A geometria agora usa o novo blockSize (0.25)
+            const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+            for (let x = 0; x < worldSize; x++) {
+                for (let z = 0; z < worldSize; z++) {
+                    const y = 0;
+                    const cube = new THREE.Mesh(geometry, brickBlockMaterial);
+                    // A posição também usa o novo blockSize
+                    cube.position.set(x * blockSize, y * blockSize, z * blockSize);
+                    cube.castShadow = true;
+                    cube.receiveShadow = true;
+                    cube.userData.isBlock = true;
+                    scene.add(cube);
+                    objects.push(cube);
+                }
+            }
+        }
+
+        // Adiciona um bloco na posição correta
+        function addBlock(intersect) {
+            if (!intersect) return;
+            // Geometria usa o novo blockSize
+            const geometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+            const newCube = new THREE.Mesh(geometry, brickBlockMaterial);
+            const newPosition = intersect.object.position.clone();
+            // O deslocamento usa o novo blockSize
+            newPosition.add(intersect.face.normal.multiplyScalar(blockSize));
+
+            // O arredondamento para a grade também usa o novo blockSize
+            newPosition.x = Math.round(newPosition.x / blockSize) * blockSize;
+            newPosition.y = Math.round(newPosition.y / blockSize) * blockSize;
+            newPosition.z = Math.round(newPosition.z / blockSize) * blockSize;
+
+            if (objects.some(obj => obj.position.equals(newPosition))) return;
+            newCube.position.copy(newPosition);
+            newCube.castShadow = true;
+            newCube.receiveShadow = true;
+            newCube.userData.isBlock = true;
+            scene.add(newCube);
+            objects.push(newCube);
+        }
+
+        // Remove um bloco
+        function removeBlock(intersect) {
+            if (!intersect || !intersect.object.userData.isBlock) return;
+            scene.remove(intersect.object);
+            const index = objects.indexOf(intersect.object);
+            if (index > -1) objects.splice(index, 1);
+            if (intersect.object.geometry) intersect.object.geometry.dispose();
+        }
+
+        // Encontra o bloco que o jogador está a olhar
+        function getIntersection() {
+            if (!controls.isLocked) return null;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const intersects = raycaster.intersectObjects(objects, false);
+            if (intersects.length > 0) {
+                const intersection = intersects[0];
+                 // Usa a distância de interação ajustada
+                 if (intersection.distance < interactionDistance) return intersection; // *** ALTERADO AQUI ***
+            }
+            return null;
+        }
+
+        // Event Handler para Teclas Pressionadas
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': moveRight = true; break;
+                case 'KeyQ': moveUp = true; break;
+                case 'KeyE': moveDown = true; break;
+                case 'Escape': if (controls.isLocked) controls.unlock(); break;
+            }
+        }
+
+        // Event Handler para Teclas Soltas
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': moveRight = false; break;
+                case 'KeyQ': moveUp = false; break;
+                case 'KeyE': moveDown = false; break;
+            }
+        }
+
+        // Event Handler para Cliques do Mouse
+        function onMouseDown(event) {
+            if (!controls.isLocked) return;
+            const intersect = getIntersection();
+            if (!intersect) return;
+            switch (event.button) {
+                case 0: removeBlock(intersect); break; // Esquerdo - Remover
+                case 2: addBlock(intersect); break;    // Direito - Adicionar
+            }
+        }
+
+        // Ajusta a câmera e o renderer ao redimensionar a janela
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Loop de Animação
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+
+            if (controls.isLocked === true) {
+                const delta = (time - prevTime) / 1000;
+
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                // Velocidades ajustadas para a nova escala
+                const moveSpeed = 20.0; // *** AJUSTADO ***
+                const verticalSpeed = 12.5; // *** AJUSTADO ***
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
+
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+
+                const verticalDelta = (Number(moveUp) - Number(moveDown)) * verticalSpeed * delta;
+                controls.getObject().position.y += verticalDelta;
+            }
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+         // Funções da caixa de mensagem
+        function showMessage(text) {
+            document.getElementById('messageText').innerText = text;
+            document.getElementById('messageBox').style.display = 'block';
+        }
+        function hideMessage() {
+            document.getElementById('messageBox').style.display = 'none';
+        }
+
+        // --- Iniciar o Jogo ---
+        init();
+
+        // Prevenir menu de contexto no clique direito na canvas
+        document.getElementById('gameCanvas').addEventListener('contextmenu', (event) => event.preventDefault());
+
+    </script>
+</body>
+</html>

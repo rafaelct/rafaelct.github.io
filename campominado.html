@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campo Minado Coração, Dragão e Espada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+            background: linear-gradient(to bottom, #e0f2fe, #fafafa);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        #main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 1rem;
+        }
+
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        input[type=number] { -moz-appearance: textfield; text-align: center; }
+
+        .grid-container {
+            display: grid; grid-template-columns: repeat(10, minmax(0, 1fr));
+            grid-template-rows: repeat(10, minmax(0, 1fr)); gap: 2px;
+            aspect-ratio: 1 / 1; max-width: 500px; width: 90vw;
+            margin-left: auto; margin-right: auto; padding: 2px;
+            background-color: #94a3b8; border-radius: 6px;
+        }
+        .square {
+            background-color: #cbd5e1; display: flex; justify-content: center;
+            align-items: center; font-size: 1.5rem; /* Ajustado por JS */
+            cursor: pointer; transition: background-color 0.2s ease;
+            border-radius: 4px; user-select: none; -webkit-user-select: none;
+            -moz-user-select: none; -ms-user-select: none;
+        }
+        .square:hover { background-color: #94a3b8; }
+        .square.revealed { background-color: #f1f5f9; cursor: default; }
+        .square.revealed:hover { background-color: #f1f5f9; }
+        .square.bomb { background-color: #fecaca; } /* Vermelho */
+        .square.heart { background-color: #dbeafe; } /* Azul */
+        .square.dragon { background-color: #fed7aa; } /* Laranja */
+        .square.sword { background-color: #e5e7eb; } /* Cinza Metálico */
+
+        #message-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background-color: rgba(0, 0, 0, 0.7); display: flex;
+            justify-content: center; align-items: center; z-index: 1000;
+            opacity: 0; visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        #message-overlay.visible { opacity: 1; visibility: visible; }
+        #message-box {
+            background-color: white; padding: 30px; border-radius: 8px;
+            text-align: left; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transform: scale(0.9); transition: transform 0.3s ease;
+            max-width: 90%; max-height: 80vh; overflow-y: auto;
+        }
+        #message-box > div { text-align: center; margin-top: 20px; }
+        #message-text { white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; }
+        #message-overlay.visible #message-box { transform: scale(1); }
+        #message-box button {
+            margin-top: 15px; padding: 10px 20px; border-radius: 5px;
+            cursor: pointer; transition: background-color 0.2s ease;
+        }
+        .hidden { display: none !important; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body> <div id="main-content"> <div id="start-screen" class="w-full max-w-lg p-8 bg-white rounded-xl shadow-lg text-center">
+             <h1 class="text-3xl font-bold mb-6 text-gray-700">Campo Minado Coração, Dragão e Espada</h1>
+            <p class="text-gray-600 mb-6">Escolha o modo ou personalize:</p>
+
+             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                 <button id="adventure-button" class="px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg shadow hover:bg-purple-700 transition duration-200 ease-in-out sm:col-span-3">
+                    ⚔️ MODO AVENTURA ⚔️
+                </button>
+                <button id="easy-button" class="px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow hover:bg-green-600 transition duration-200 ease-in-out">
+                    Fácil
+                </button>
+                <button id="normal-button" class="px-6 py-3 bg-yellow-500 text-white font-semibold rounded-lg shadow hover:bg-yellow-600 transition duration-200 ease-in-out">
+                    Normal
+                </button>
+                <button id="hard-button" class="px-6 py-3 bg-red-500 text-white font-semibold rounded-lg shadow hover:bg-red-600 transition duration-200 ease-in-out">
+                    Difícil
+                </button>
+            </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                 <button id="custom-button" class="px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow hover:bg-blue-600 transition duration-200 ease-in-out">
+                    Personalizar
+                </button>
+                 <button id="instructions-button" class="px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow hover:bg-gray-500 transition duration-200 ease-in-out">
+                    Instruções
+                </button>
+            </div>
+
+            <div id="custom-config-section" class="hidden mt-6 pt-6 border-t border-gray-200">
+                 <p class="text-gray-600 mb-4">Configure seu jogo personalizado:</p>
+                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                    <div><label for="bombs-input" class="block text-sm font-medium text-gray-700 mb-1">Bombas:</label><input type="number" id="bombs-input" value="10" min="0" max="90" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="hearts-input" class="block text-sm font-medium text-gray-700 mb-1">Corações:</label><input type="number" id="hearts-input" value="10" min="0" max="90" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="dragons-input" class="block text-sm font-medium text-gray-700 mb-1">Dragões:</label><input type="number" id="dragons-input" value="5" min="0" max="90" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="swords-input" class="block text-sm font-medium text-gray-700 mb-1">Espadas:</label><input type="number" id="swords-input" value="5" min="0" max="90" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                </div>
+                 <p class="text-xs text-gray-500 mb-4">O total de itens não pode exceder 90.</p>
+                 <p id="config-error" class="text-red-500 text-sm mb-4 h-4"></p>
+                 <button id="start-custom-button" class="w-full px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow hover:bg-green-600 transition duration-200 ease-in-out text-lg">Iniciar Jogo Personalizado</button>
+            </div>
+        </div>
+
+        <div id="game-screen" class="hidden w-full flex flex-col items-center">
+             <h1 class="text-3xl font-bold mb-2 text-gray-700">Campo Minado Coração, Dragão e Espada</h1>
+             <p id="difficulty-display" class="text-center text-gray-500 text-sm mb-4"></p>
+            <div id="status-area" class="flex flex-wrap justify-around w-full max-w-md mb-4 text-lg text-gray-600 gap-x-4 gap-y-2">
+                <div>Vidas: <span id="lives-count" class="font-bold text-red-500">3</span> ❤️</div>
+                <div id="swords-status">Espadas: <span id="sword-count" class="font-bold text-gray-700">0</span> ⚔️</div>
+                <div id="squares-status" class="w-full text-center sm:w-auto">Quadrados: <span id="squares-count" class="font-bold text-blue-500">0</span> / <span id="target-squares">?</span></div>
+            </div>
+            <div id="game-grid" class="grid-container shadow-md"></div>
+            <button id="back-to-menu-button" class="mt-6 px-6 py-2 bg-gray-500 text-white font-semibold rounded-lg shadow hover:bg-gray-600 transition duration-200 ease-in-out">
+                Voltar ao Menu
+            </button>
+        </div>
+
+    </div> <div id="ad-placeholder" class="w-full max-w-lg h-20 mt-auto mb-4 mx-auto flex items-center justify-center bg-gray-200 border border-gray-300 rounded-md text-gray-500 text-sm shadow">
+        Espaço para anúncio
+    </div>
+
+    <div id="message-overlay">
+        <div id="message-box">
+            <p id="message-text" class="text-xl font-semibold mb-4"></p>
+            <div><button id="message-button" class="bg-blue-500 text-white hover:bg-blue-600">OK</button></div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- Configurações Globais ---
+            const GRID_SIZE = 10; const TOTAL_SQUARES = GRID_SIZE * GRID_SIZE;
+            const INITIAL_LIVES = 3; const MAX_TOTAL_ITEMS = 90;
+
+            // --- Variáveis Configuráveis ---
+            let numBombs; let numHearts; let numDragons; let numSwords; let targetSquares;
+            let currentDifficulty = "";
+
+            // --- Estado do Jogo ---
+            let lives; let revealedSquaresCount; let swordCount = 0;
+            let board = []; let revealed = []; let gameOver; let audioStarted = false;
+            let isAdventureMode = false;
+            let adventureLevel = 0;
+
+            // --- DOM Elements ---
+            const startScreen = document.getElementById('start-screen');
+            const gameScreen = document.getElementById('game-screen');
+            const adventureButton = document.getElementById('adventure-button');
+            const easyButton = document.getElementById('easy-button');
+            const normalButton = document.getElementById('normal-button');
+            const hardButton = document.getElementById('hard-button');
+            const customButton = document.getElementById('custom-button');
+            const instructionsButton = document.getElementById('instructions-button');
+            const customConfigSection = document.getElementById('custom-config-section');
+            const bombsInput = document.getElementById('bombs-input');
+            const heartsInput = document.getElementById('hearts-input');
+            const dragonsInput = document.getElementById('dragons-input');
+            const swordsInput = document.getElementById('swords-input');
+            const configError = document.getElementById('config-error');
+            const startCustomButton = document.getElementById('start-custom-button');
+            const statusArea = document.getElementById('status-area');
+            const squaresStatusDiv = document.getElementById('squares-status');
+            const livesCountElement = document.getElementById('lives-count');
+            const swordCountElement = document.getElementById('sword-count');
+            const squaresCountElement = document.getElementById('squares-count');
+            const targetSquaresElement = document.getElementById('target-squares');
+            const gridElement = document.getElementById('game-grid');
+            const backToMenuButton = document.getElementById('back-to-menu-button');
+            const messageOverlay = document.getElementById('message-overlay');
+            const messageText = document.getElementById('message-text');
+            const messageButton = document.getElementById('message-button');
+            const difficultyDisplayElement = document.getElementById('difficulty-display');
+
+            // --- Texto das Instruções ---
+            const instructionsText = `
+Bem-vindo ao Campo Minado Coração, Dragão e Espada!
+
+**Modos de Jogo:**
+* **Aventura:** Comece no nível Fácil e progrida para Normal e Difícil ao vencer cada nível. Vidas e Espadas são mantidas entre os níveis! Se perder, a aventura acaba.
+* **Fácil/Normal/Difícil:** Jogue um nível único com configurações predefinidas.
+* **Personalizar:** Defina sua própria quantidade de itens no tabuleiro.
+
+**Objetivo:**
+Revele todos os quadrados seguros do tabuleiro sem ficar sem vidas. O número de quadrados seguros necessários ("Quadrados: X / Y") é o total de quadrados (100) menos o número de Bombas e Dragões.
+
+**Itens:**
+🔵 - **Quadrado Vazio:** Seguro! Revelá-lo conta para a vitória.
+💣 - **Bomba:** Cuidado! Revelar uma bomba custa 1 vida.
+❤️ - **Coração:** Sorte! Você ganha 1 vida extra. Conta como quadrado seguro.
+⚔️ - **Espada:** Colete-a! Aumenta seu contador de espadas. Conta como quadrado seguro.
+🐉 - **Dragão:** Perigo!
+    - Se você tiver espadas (⚔️ > 0), você perde 1 espada para espantá-lo.
+    - Se você não tiver espadas (⚔️ = 0), você perde 1 vida!
+    - Dragões NÃO contam como quadrados seguros para a vitória.
+
+**Vitória:**
+Você vence ao revelar o número necessário de quadrados seguros. No modo Aventura, você deve vencer os 3 níveis.
+
+**Derrota:**
+Você perde se suas vidas chegarem a 0.
+
+Boa sorte!
+            `; // Instruções atualizadas
+
+            // --- Sons (Tone.js) ---
+            let clickSynth, bombSynth, heartSynth, winSynth, loseSynth, dragonSynth, swordToneSynth, swordNoiseSynth;
+            function setupSounds() { /* ... (sem alterações) ... */
+                if (typeof Tone === 'undefined') return;
+                try {
+                    clickSynth = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.005, decay: 0.1, sustain: 0.01, release: 0.1 } }).toDestination();
+                    bombSynth = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.005, decay: 0.2, sustain: 0, release: 0.2 } }).toDestination(); bombSynth.volume.value = -6;
+                    heartSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination(); heartSynth.volume.value = -3;
+                    winSynth = new Tone.Synth({ oscillator: { type: 'square' } }).toDestination(); winSynth.volume.value = -6;
+                    loseSynth = new Tone.Synth({ oscillator: { type: 'sawtooth' } }).toDestination(); loseSynth.volume.value = -6;
+                    dragonSynth = new Tone.FMSynth({ harmonicity: 1.5, modulationIndex: 5, envelope: { attack: 0.1, decay: 0.3, sustain: 0.1, release: 0.5 }, modulationEnvelope: { attack: 0.05, decay: 0.2, sustain: 0.05, release: 0.4 } }).toDestination(); dragonSynth.volume.value = -5;
+                    swordToneSynth = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0.01, release: 0.1 } }).toDestination(); swordToneSynth.volume.value = -8;
+                    swordNoiseSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }).toDestination(); swordNoiseSynth.volume.value = -18;
+                    console.log("Sounds setup complete.");
+                } catch (e) { console.error("Error setting up sounds:", e); }
+            }
+            function playClickSound() { if (audioStarted && clickSynth) clickSynth.triggerAttackRelease("C5", "8n"); }
+            function playBombSound() { if (audioStarted && bombSynth) bombSynth.triggerAttackRelease("0.2"); }
+            function playHeartSound() { if (audioStarted && heartSynth) { heartSynth.triggerAttackRelease("G5", "8n", Tone.now()); heartSynth.triggerAttackRelease("C6", "8n", Tone.now() + 0.1); } }
+            function playWinSound() { if (audioStarted && winSynth) { const now = Tone.now(); winSynth.triggerAttackRelease("C5", "8n", now); winSynth.triggerAttackRelease("E5", "8n", now + 0.2); winSynth.triggerAttackRelease("G5", "8n", now + 0.4); winSynth.triggerAttackRelease("C6", "4n", now + 0.6); } }
+            function playLoseSound() { if (audioStarted && loseSynth) { const now = Tone.now(); loseSynth.triggerAttackRelease("C3", "4n", now); loseSynth.triggerAttackRelease("A2", "4n", now + 0.3); } }
+            function playDragonSound() { if (audioStarted && dragonSynth) dragonSynth.triggerAttackRelease("A2", "2n"); }
+            function playSwordSound() { if (audioStarted) { const now = Tone.now(); if (swordToneSynth) swordToneSynth.triggerAttackRelease("E6", "16n", now); if (swordNoiseSynth) swordNoiseSynth.triggerAttackRelease("0.05", now); } }
+
+            // --- Funções de Controle de Tela ---
+            function showStartScreen() { /* ... (sem alterações) ... */
+                 startScreen.classList.remove('hidden');
+                gameScreen.classList.add('hidden');
+                customConfigSection.classList.add('hidden');
+                configError.textContent = '';
+             }
+            function showGameScreen() { /* ... (sem alterações) ... */
+                 startScreen.classList.add('hidden');
+                gameScreen.classList.remove('hidden');
+                gameScreen.classList.add('flex', 'flex-col', 'items-center');
+             }
+
+            // --- Função para Definir Configuração por Nível ---
+             function setDifficulty(level) { /* ... (sem alterações) ... */
+                 isAdventureMode = true;
+                 adventureLevel = level;
+                 switch (level) {
+                     case 1: currentDifficulty = "Aventura - Fácil"; numBombs = 10; numHearts = 20; numDragons = 10; numSwords = 20; break;
+                     case 2: currentDifficulty = "Aventura - Normal"; numBombs = 15; numHearts = 15; numDragons = 15; numSwords = 15; break;
+                     case 3: currentDifficulty = "Aventura - Difícil"; numBombs = 20; numHearts = 10; numDragons = 20; numSwords = 10; break;
+                     default: console.warn("Nível de aventura inválido, definindo para Fácil."); currentDifficulty = "Aventura - Fácil"; numBombs = 10; numHearts = 20; numDragons = 10; numSwords = 20; adventureLevel = 1; break;
+                 }
+             }
+             function getDifficultyName(level) { /* ... (sem alterações) ... */
+                 if (level === 1) return "Fácil"; if (level === 2) return "Normal"; if (level === 3) return "Difícil"; return "";
+             }
+
+            function startGameFlow() { /* ... (sem alterações) ... */
+                 if (!audioStarted && typeof Tone !== 'undefined' && Tone.context.state !== 'running') {
+                    Tone.start().then(() => { audioStarted = true; console.log("Audio Context started!"); showGameScreen(); initGame(); })
+                    .catch(e => { console.error("Error starting Audio Context:", e); audioStarted = false; showGameScreen(); initGame(); });
+                } else { showGameScreen(); initGame(); }
+             }
+
+            // --- Funções do Jogo ---
+            // *** initGame MODIFICADA para persistir vidas/espadas na Aventura ***
+            function initGame() {
+                 // Reseta vidas e espadas APENAS se não for aventura ou se for o primeiro nível da aventura
+                 if (!isAdventureMode || adventureLevel === 1) {
+                    lives = INITIAL_LIVES;
+                    swordCount = 0;
+                 }
+                 // Mantém vidas e espadas se adventureLevel > 1
+                 console.log(`Initializing level ${adventureLevel}. Lives: ${lives}, Swords: ${swordCount}`);
+
+                targetSquares = TOTAL_SQUARES - numBombs - numDragons;
+                revealedSquaresCount = 0; // Sempre reseta quadrados revelados
+                gameOver = false; // Sempre reseta status de fim de jogo
+                board = Array(TOTAL_SQUARES).fill(0);
+                revealed = Array(TOTAL_SQUARES).fill(false);
+                gridElement.innerHTML = '';
+                hideMessage();
+                targetSquaresElement.textContent = targetSquares;
+                difficultyDisplayElement.textContent = `Nível: ${currentDifficulty}`;
+                updateUI(); // Atualiza UI com vidas/espadas atuais
+                placeItems(numBombs, 1); placeItems(numHearts, 2); placeItems(numDragons, 3); placeItems(numSwords, 4);
+                createGrid();
+                setTimeout(adjustFontSize, 50);
+            }
+            function placeItems(count, itemType) { /* ... (sem alterações) ... */
+                count = Math.max(0, parseInt(count) || 0);
+                let itemsPlaced = 0; let attempts = 0;
+                while (itemsPlaced < count && attempts < TOTAL_SQUARES * 2) {
+                    const randomIndex = Math.floor(Math.random() * TOTAL_SQUARES);
+                    if (board[randomIndex] === 0) { board[randomIndex] = itemType; itemsPlaced++; }
+                    attempts++;
+                }
+                 if (itemsPlaced < count) { console.warn(`Could not place all ${count} items of type ${itemType}. Placed ${itemsPlaced}.`); }
+            }
+            function createGrid() { /* ... (sem alterações) ... */
+                 if (!gridElement) return;
+                gridElement.innerHTML = '';
+                for (let i = 0; i < TOTAL_SQUARES; i++) {
+                    const square = document.createElement('div');
+                    square.className = 'square'; square.dataset.index = i;
+                    square.addEventListener('click', handleSquareClick);
+                    gridElement.appendChild(square);
+                }
+            }
+            function adjustFontSize() { /* ... (sem alterações) ... */
+                 const squareElement = gridElement.querySelector('.square');
+                if (squareElement && squareElement.offsetWidth > 0) {
+                    const squareSize = squareElement.offsetWidth;
+                    const fontSize = Math.max(10, Math.min(squareSize * 0.6, 30));
+                    gridElement.style.setProperty('--square-font-size', `${fontSize}px`);
+                    gridElement.querySelectorAll('.square').forEach(sq => {
+                        sq.style.fontSize = `var(--square-font-size)`;
+                    });
+                }
+            }
+            function handleSquareClick(event) { processClick(event); }
+            function processClick(event) { /* ... (sem alterações) ... */
+                 if (gameOver || !audioStarted) return;
+                const targetSquare = event.target;
+                if (!targetSquare.classList.contains('square')) return;
+                const index = parseInt(targetSquare.dataset.index);
+                if (revealed[index] || !targetSquare) return;
+                revealed[index] = true;
+                targetSquare.classList.add('revealed');
+                const itemType = board[index];
+                switch (itemType) {
+                    case 1: targetSquare.innerHTML = '💣'; targetSquare.classList.add('bomb'); playBombSound(); lives--; checkGameOver(); break;
+                    case 2: targetSquare.innerHTML = '❤️'; targetSquare.classList.add('heart'); playHeartSound(); lives++; revealedSquaresCount++; checkWin(); break;
+                    case 3: targetSquare.innerHTML = '🐉'; targetSquare.classList.add('dragon'); playDragonSound(); if (swordCount > 0) { swordCount--; } else { lives--; checkGameOver(); } break;
+                    case 4: targetSquare.innerHTML = '⚔️'; targetSquare.classList.add('sword'); playSwordSound(); swordCount++; revealedSquaresCount++; checkWin(); break;
+                    default: playClickSound(); revealedSquaresCount++; checkWin(); break;
+                }
+                updateUI();
+            }
+            function updateUI() { /* ... (sem alterações) ... */
+                 livesCountElement.textContent = lives;
+                swordCountElement.textContent = swordCount;
+                squaresCountElement.textContent = revealedSquaresCount;
+            }
+            function checkWin() { /* ... (sem alterações) ... */
+                 if (!gameOver && revealedSquaresCount >= targetSquares) {
+                    playWinSound();
+                    if (isAdventureMode) {
+                        adventureLevel++;
+                        if (adventureLevel > 3) {
+                            gameOver = true; isAdventureMode = false; adventureLevel = 0;
+                            showMessage("Aventura Completa! Você venceu todos os níveis! 🎉"); revealAll(false);
+                        } else {
+                            const nextLevelName = getDifficultyName(adventureLevel);
+                            showMessage(`Nível ${getDifficultyName(adventureLevel - 1)} completo!\nIniciando Nível ${nextLevelName}...`);
+                            setTimeout(() => { setDifficulty(adventureLevel); initGame(); }, 1500);
+                        }
+                    } else {
+                        gameOver = true; showMessage("Você Venceu! Parabéns! 🎉"); revealAll(false);
+                    }
+                }
+            }
+            function checkGameOver() { /* ... (sem alterações) ... */
+                 if (!gameOver && lives <= 0) {
+                    gameOver = true; lives = 0; playLoseSound(); revealAll(true);
+                    if (isAdventureMode) {
+                        showMessage(`Fim de Jogo na Aventura (Nível ${getDifficultyName(adventureLevel)})! Tente novamente.`);
+                        isAdventureMode = false; adventureLevel = 0;
+                    } else { showMessage("Fim de Jogo! Você ficou sem vidas. 😢"); }
+                }
+            }
+            function revealAll(showBombs) { /* ... (sem alterações) ... */
+                 const squares = gridElement.querySelectorAll('.square');
+                squares.forEach((square, index) => {
+                    square.removeEventListener('click', handleSquareClick);
+                    square.style.cursor = 'default';
+                    if (!revealed[index]) {
+                        square.classList.add('revealed');
+                        square.style.transition = 'background-color 0.3s ease 0.1s';
+                        const itemType = board[index];
+                        if (itemType === 1 && showBombs) { square.innerHTML = '💣'; square.classList.add('bomb'); }
+                        else if (itemType === 2) { square.innerHTML = '❤️'; square.classList.add('heart'); }
+                        else if (itemType === 3) { square.innerHTML = '🐉'; square.classList.add('dragon'); }
+                        else if (itemType === 4) { square.innerHTML = '⚔️'; square.classList.add('sword'); }
+                    }
+                });
+            }
+            function showMessage(message) { /* ... (sem alterações) ... */
+                 messageText.textContent = message;
+                messageOverlay.classList.add('visible');
+                 if (message.length > 100 && !message.includes("Parabéns") && !message.includes("Fim de Jogo")) { messageText.parentElement.style.textAlign = 'left'; messageText.style.fontSize = '0.9rem'; }
+                 else { messageText.parentElement.style.textAlign = 'center'; messageText.style.fontSize = '1.25rem'; }
+             }
+            function hideMessage() { messageOverlay.classList.remove('visible'); }
+
+            // --- Event Listeners ---
+            adventureButton.addEventListener('click', () => { isAdventureMode = true; setDifficulty(1); startGameFlow(); }); // Inicia aventura no nível 1
+            easyButton.addEventListener('click', () => { isAdventureMode = false; adventureLevel = 0; currentDifficulty = "Fácil"; numBombs = 10; numHearts = 20; numDragons = 10; numSwords = 20; startGameFlow(); });
+            normalButton.addEventListener('click', () => { isAdventureMode = false; adventureLevel = 0; currentDifficulty = "Normal"; numBombs = 15; numHearts = 15; numDragons = 15; numSwords = 15; startGameFlow(); });
+            hardButton.addEventListener('click', () => { isAdventureMode = false; adventureLevel = 0; currentDifficulty = "Difícil"; numBombs = 20; numHearts = 10; numDragons = 20; numSwords = 10; startGameFlow(); });
+            customButton.addEventListener('click', () => { isAdventureMode = false; adventureLevel = 0; customConfigSection.classList.remove('hidden'); });
+            instructionsButton.addEventListener('click', () => { showMessage(instructionsText); });
+            startCustomButton.addEventListener('click', () => {
+                isAdventureMode = false; adventureLevel = 0;
+                const bombs = parseInt(bombsInput.value) || 0; const hearts = parseInt(heartsInput.value) || 0;
+                const dragons = parseInt(dragonsInput.value) || 0; const swords = parseInt(swordsInput.value) || 0;
+                const totalItems = bombs + hearts + dragons + swords;
+                configError.textContent = '';
+                if (bombs < 0 || hearts < 0 || dragons < 0 || swords < 0) { configError.textContent = 'Valores não podem ser negativos.'; return; }
+                if (totalItems >= TOTAL_SQUARES) { configError.textContent = `Total de itens (${totalItems}) deve ser menor que ${TOTAL_SQUARES}.`; return; }
+                if (totalItems > MAX_TOTAL_ITEMS) { configError.textContent = `Total de itens não deve exceder ${MAX_TOTAL_ITEMS}.`; return; }
+                numBombs = bombs; numHearts = hearts; numDragons = dragons; numSwords = swords;
+                currentDifficulty = "Personalizado";
+                startGameFlow();
+            });
+            backToMenuButton.addEventListener('click', () => { isAdventureMode = false; adventureLevel = 0; showStartScreen(); });
+            messageButton.addEventListener('click', hideMessage);
+            window.addEventListener('resize', () => { clearTimeout(window.resizeTimeout); window.resizeTimeout = setTimeout(adjustFontSize, 100); });
+
+            // --- Início ---
+            setupSounds();
+            showStartScreen();
+
+        }); // Fim DOMContentLoaded
+    </script>
+
+</body>
+</html>
+

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labirinto 3D - Sons de Passos</title> <style>
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; background-color: #111; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #game-container { position: relative; width: 100%; height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #instructions { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 8px; font-size: 16px; color: #eee; z-index: 10; cursor: pointer; text-align: center; border: 1px solid #555; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background-color: rgba(255, 255, 255, 0.8); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 11; border: 1px solid rgba(0, 0, 0, 0.5); }
+        #message-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0, 150, 0, 0.9); color: white; padding: 30px; border-radius: 10px; font-size: 24px; text-align: center; display: none; z-index: 12; box-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
+        #message-box button { display: block; margin: 20px auto 0; padding: 10px 25px; font-size: 18px; color: #fff; background-color: #008000; border: 1px solid #afa; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
+        #message-box button:hover { background-color: #00a000; }
+        #debug-log { display: none; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+</head>
+<body>
+    <div id="game-container">
+        <div id="instructions">
+             Use W, A, S, D para mover.<br>
+             Use o Mouse para olhar.<br>
+             Clique AQUI para travar o mouse.<br>
+             Encontre o bloco VERDE (saída). </div>
+        <div id="crosshair">+</div>
+        <div id="message-box">
+            Você encontrou a saída!
+            <button id="okButton">Novo Labirinto</button> </div>
+        <div id="debug-log">Debug Log:<br></div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+    <script>
+        // --- Configuração Inicial ---
+        let scene, camera, renderer, controls;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        const playerHeight = 1.8;
+        const playerRadius = 0.3;
+        const moveSpeed = 5.0;
+        const wallHeight = 3.0;
+        const wallThickness = 1.0;
+        let gameWon = false;
+        let frameCount = 0;
+
+        let maze = [];
+        let mazeWidth = 15;
+        let mazeDepth = 15;
+        let mazeObjects = new THREE.Group();
+        let exitPosition = new THREE.Vector3();
+        let audioInitialized = false;
+
+        // --- Configuração de Som (Tone.js) ---
+        let exitSoundOsc = null;
+        let footstepSound = null; // Som dos passos
+        const minSoundDistance = wallThickness;
+        const maxSoundDistance = Math.sqrt(mazeWidth*mazeWidth + mazeDepth*mazeDepth) * wallThickness;
+        const minVolumeDB = -10;
+        const maxVolumeDB = -40;
+        let lastStepPosition = new THREE.Vector3(); // Posição do último passo
+        const stepDistanceThreshold = 0.8; // Distância para tocar o som do passo
+
+        // --- Função para criar textura de estrelas ---
+        function createStarfieldTexture(texWidth = 512, texHeight = 512, numStars = 600) { /* ... (sem alterações) ... */ const canvas = document.createElement('canvas'); canvas.width = texWidth; canvas.height = texHeight; const context = canvas.getContext('2d'); context.fillStyle = '#000000'; context.fillRect(0, 0, texWidth, texHeight); for (let i = 0; i < numStars; i++) { const x = Math.random() * texWidth; const y = Math.random() * texHeight; const size = Math.random() * 1.5 + 0.5; const brightness = Math.random() * 0.5 + 0.5; context.fillStyle = `rgba(255, 255, 230, ${brightness})`; context.fillRect(x - size / 2, y - size / 2, size, size); } const texture = new THREE.CanvasTexture(canvas); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping; log("Textura de estrelas criada."); return texture; }
+
+
+        // --- Materiais ---
+        const textureLoader = new THREE.TextureLoader();
+        const brickTexture = textureLoader.load( 'https://threejs.org/examples/textures/brick_diffuse.jpg', (texture) => { log("Textura tijolos ok."); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping; texture.repeat.set(1, 2); }, undefined, (err) => { console.error('Erro textura tijolos:', err); });
+        const wallMaterial = new THREE.MeshStandardMaterial({ map: brickTexture, roughness: 0.8, metalness: 0.1 });
+        const grassTexture = textureLoader.load( 'https://threejs.org/examples/textures/terrain/grasslight-big.jpg', (texture) => { log("Textura grama ok."); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping; }, undefined, (err) => { console.error('Erro textura grama:', err); });
+        const floorMaterial = new THREE.MeshStandardMaterial({ map: grassTexture, roughness: 0.9, metalness: 0.0 });
+        const ceilingTexture = createStarfieldTexture();
+        const ceilingMaterial = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
+        const exitMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00, emissive: 0x11ff11, emissiveIntensity: 0.8, roughness: 0.9 });
+
+        // --- Elementos do DOM ---
+        const canvas = document.getElementById('gameCanvas');
+        const instructions = document.getElementById('instructions');
+        const messageBox = document.getElementById('message-box');
+        const okButton = document.getElementById('okButton');
+        const debugLog = document.getElementById('debug-log');
+
+        // --- Função de Log ---
+        function log(message) { console.log(`[MazeGame] ${message}`); }
+
+        // --- Geração de Labirinto ---
+        function generateMaze(width, depth) { /* ... (sem alterações) ... */ log(`Gerando labirinto ${width}x${depth}...`); width = width % 2 === 0 ? width + 1 : width; depth = depth % 2 === 0 ? depth + 1 : depth; let newMaze = Array(depth).fill(null).map(() => Array(width).fill(1)); let stack = []; let visitedCount = 0; const totalCells = ((width - 1) / 2) * ((depth - 1) / 2); let currentX = 1; let currentZ = 1; newMaze[currentZ][currentX] = 0; stack.push([currentX, currentZ]); visitedCount++; const dx = [0, 0, 2, -2]; const dz = [-2, 2, 0, 0]; const pdx = [0, 0, 1, -1]; const pdz = [-1, 1, 0, 0]; while (visitedCount < totalCells) { let neighbors = []; for (let i = 0; i < 4; i++) { let nx = currentX + dx[i]; let nz = currentZ + dz[i]; if (nx > 0 && nx < width - 1 && nz > 0 && nz < depth - 1 && newMaze[nz][nx] === 1) { neighbors.push(i); } } if (neighbors.length > 0) { let randomIndex = Math.floor(Math.random() * neighbors.length); let dirIndex = neighbors[randomIndex]; let nextX = currentX + dx[dirIndex]; let nextZ = currentZ + dz[dirIndex]; let wallX = currentX + pdx[dirIndex]; let wallZ = currentZ + pdz[dirIndex]; newMaze[nextZ][nextX] = 0; newMaze[wallZ][wallX] = 0; currentX = nextX; currentZ = nextZ; stack.push([currentX, currentZ]); visitedCount++; } else if (stack.length > 0) { [currentX, currentZ] = stack.pop(); } else { log("ERRO: Stack vazia inesperadamente."); break; } } newMaze[depth - 2][width - 2] = 2; log("Labirinto gerado."); return newMaze; }
+
+        // --- Limpa Geometria ---
+        function clearMazeGeometry() { /* ... (sem alterações) ... */ log("Limpando geometria..."); while (mazeObjects.children.length > 0) { const object = mazeObjects.children[0]; mazeObjects.remove(object); if (object.geometry) object.geometry.dispose(); } log("Geometria limpa."); }
+
+        // --- Constrói Geometria ---
+        function buildMazeGeometry(mazeLayout) { /* ... (sem alterações) ... */ log("Construindo geometria..."); const depth = mazeLayout.length; const width = mazeLayout[0].length; const wallGeometry = new THREE.BoxGeometry(wallThickness, wallHeight, wallThickness); let foundExit = false; for (let z = 0; z < depth; z++) { for (let x = 0; x < width; x++) { if (mazeLayout[z] && (mazeLayout[z][x] === 1 || mazeLayout[z][x] === 2)) { const material = (mazeLayout[z][x] === 1) ? wallMaterial : exitMaterial; const wall = new THREE.Mesh(wallGeometry, material); const worldX = x * wallThickness + wallThickness / 2 - (width * wallThickness / 2); const worldZ = z * wallThickness + wallThickness / 2 - (depth * wallThickness / 2); wall.position.set( worldX, wallHeight / 2, worldZ ); wall.userData.isMazeElement = true; mazeObjects.add(wall); if (mazeLayout[z][x] === 2) { exitPosition.copy(wall.position); exitPosition.y = playerHeight; log(`Posição da saída definida em: ${exitPosition.x.toFixed(1)}, ${exitPosition.y.toFixed(1)}, ${exitPosition.z.toFixed(1)}`); foundExit = true; } } } } if (!foundExit) { log("AVISO: Posição da saída não encontrada!"); } const floorGeometry = new THREE.PlaneGeometry(width * wallThickness, depth * wallThickness); const floor = new THREE.Mesh(floorGeometry, floorMaterial); floor.rotation.x = -Math.PI / 2; floor.userData.isMazeElement = true; mazeObjects.add(floor); if (floorMaterial.map && floorMaterial.map.image) { floorMaterial.map.repeat.set(width / 2, depth / 2); log("Repetição da textura do chão ajustada."); } else if (floorMaterial.map) { log("Aguardando textura do chão carregar para ajustar repetição."); } const ceilingGeometry = new THREE.PlaneGeometry(width * wallThickness, depth * wallThickness); const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial); ceiling.position.y = wallHeight; ceiling.rotation.x = Math.PI / 2; ceiling.userData.isMazeElement = true; mazeObjects.add(ceiling); log("Teto adicionado."); if (ceilingMaterial.map) { ceilingMaterial.map.repeat.set(width / 4, depth / 4); log("Repetição da textura do teto ajustada."); } log("Geometria construída."); }
+
+        // --- Reinicia Jogo ---
+        function resetGame() {
+             log("--- Reiniciando Jogo ---");
+             messageBox.style.display = 'none'; gameWon = false;
+             clearMazeGeometry();
+             maze = generateMaze(mazeWidth, mazeDepth);
+             buildMazeGeometry(maze);
+             const startX = 1.5 * wallThickness - (mazeWidth * wallThickness / 2);
+             const startZ = 1.5 * wallThickness - (mazeDepth * wallThickness / 2);
+             if (controls) {
+                 const playerPos = controls.getObject().position;
+                 playerPos.set(startX, playerHeight, startZ);
+                 lastStepPosition.copy(playerPos); // Reseta posição do último passo
+                 log(`Jogador reposicionado.`);
+             }
+             if (!controls.isLocked) { instructions.style.display = 'block'; } else { instructions.style.display = 'none';}
+             log("--- Jogo Reiniciado ---");
+        }
+
+        // --- Inicialização ---
+        function init() {
+            log("--- Iniciando Jogo ---");
+            try {
+                scene = new THREE.Scene(); scene.background = new THREE.Color(0x111122); scene.fog = new THREE.Fog(0x111122, wallThickness * 3, wallThickness * 18); log("Cena criada.");
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100); log("Câmera criada.");
+                renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(window.devicePixelRatio); log("Renderer criado.");
+                controls = new THREE.PointerLockControls(camera, document.body); scene.add(controls.getObject()); log("Controles criados.");
+                scene.add(mazeObjects);
+
+                // --- Inicialização do Som ---
+                log("Tentando inicializar Tone.js...");
+                if (typeof Tone !== 'undefined') {
+                    try {
+                        // Som da Saída
+                        exitSoundOsc = new Tone.Oscillator({ frequency: 100, type: "sine", volume: maxVolumeDB }).toDestination();
+                        log("Oscilador de som (saída) criado.");
+
+                        // Som dos Passos
+                        footstepSound = new Tone.NoiseSynth({
+                            noise: { type: 'pink' },
+                            envelope: { attack: 0.005, decay: 0.06, sustain: 0, release: 0.08 },
+                            filter: { type: 'bandpass', frequency: 1200, Q: 0.7 }, // Filtro para som de grama/terra
+                            volume: -22 // Volume dos passos (ajustar)
+                        }).toDestination();
+                        log("Sintetizador de passos criado.");
+
+                    } catch (audioError) { log("!!! ERRO ao criar áudio Tone.js: " + audioError.message); console.error("Erro Tone.js:", audioError); exitSoundOsc = null; footstepSound = null; }
+                } else { log("!!! ERRO: Biblioteca Tone.js não encontrada!"); exitSoundOsc = null; footstepSound = null; }
+
+                // Eventos
+                instructions.addEventListener('click', async () => { log(">>> Clique nas instruções detectado."); if (!gameWon) { if (!audioInitialized && Tone && (exitSoundOsc || footstepSound) ) { log(`Contexto de áudio state: ${Tone.context.state}`); if (Tone.context.state !== 'running') { try { log("Tentando iniciar Tone.start()..."); await Tone.start(); log("Contexto de áudio iniciado com SUCESSO."); audioInitialized = true; if(exitSoundOsc && exitSoundOsc.state !== "started") { exitSoundOsc.start(); log("Oscilador (saída) iniciado."); } if(footstepSound){ log("Sintetizador de passos pronto."); } } catch(startError) { log("!!! ERRO ao iniciar contexto de áudio: " + startError.message); console.error("Erro Tone.start():", startError); } } else { log("Contexto de áudio já estava 'running'."); audioInitialized = true; if(exitSoundOsc && exitSoundOsc.state !== "started") { exitSoundOsc.start(); log("Oscilador (saída) iniciado."); } if(footstepSound){ log("Sintetizador de passos pronto."); } } } else { log(`Não foi possível inicializar áudio: audioInitialized=${audioInitialized}, Tone=${typeof Tone}, exitSoundOsc=${!!exitSoundOsc}, footstepSound=${!!footstepSound}`); } controls.lock(); } }, false);
+                controls.addEventListener('lock', () => { log("Controles travados."); instructions.style.display = 'none'; });
+                controls.addEventListener('unlock', () => { log("Controles destravados."); if (!gameWon) instructions.style.display = 'block'; });
+                okButton.addEventListener('click', resetGame); log("Listeners de controle adicionados.");
+                const ambientLight = new THREE.AmbientLight(0x606070); scene.add(ambientLight); const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7); directionalLight.position.set(1, 1.5, 1).normalize(); scene.add(directionalLight); log("Luzes adicionadas.");
+                document.addEventListener('keydown', onKeyDown); document.addEventListener('keyup', onKeyUp); window.addEventListener('resize', onWindowResize); log("Listeners gerais adicionados.");
+                resetGame(); log("Iniciando loop de animação..."); animate(); log("--- Inicialização Concluída ---");
+            } catch (error) { log("### ERRO CRÍTICO em init(): " + error.message); console.error("Erro detalhado em init():", error); }
+        }
+
+        // --- Funções de Eventos ---
+        function onKeyDown(event) { /* ... */ switch (event.code) { case 'ArrowUp': case 'KeyW': moveForward = true; break; case 'ArrowLeft': case 'KeyA': moveLeft = true; break; case 'ArrowDown': case 'KeyS': moveBackward = true; break; case 'ArrowRight': case 'KeyD': moveRight = true; break; } }
+        function onKeyUp(event) { /* ... */ switch (event.code) { case 'ArrowUp': case 'KeyW': moveForward = false; break; case 'ArrowLeft': case 'KeyA': moveLeft = false; break; case 'ArrowDown': case 'KeyS': moveBackward = false; break; case 'ArrowRight': case 'KeyD': moveRight = false; break; } }
+        function onWindowResize() { /* ... */ if (camera && renderer) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); } }
+
+        // --- Função de Vitória ---
+        function winGame() { /* ... */ log(">>> VITÓRIA!"); gameWon = true; messageBox.style.display = 'block'; if(controls) controls.unlock(); moveForward = moveBackward = moveLeft = moveRight = false; if (exitSoundOsc) { exitSoundOsc.volume.rampTo(-Infinity, 0.5); log("Som da saída silenciado."); } }
+
+        // --- Loop de Animação ---
+        const clock = new THREE.Clock();
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                const delta = clock.getDelta();
+                frameCount++;
+                if (!controls || !controls.getObject()) return;
+
+                const playerPosition = controls.getObject().position;
+                let playerMoved = false; // Flag para saber se o jogador realmente se moveu
+
+                // --- Lógica de Movimento e Colisão ---
+                if (controls.isLocked === true && !gameWon) {
+                    let effectiveSpeed = moveSpeed;
+                    if ( (moveForward || moveBackward) && (moveLeft || moveRight) ) { effectiveSpeed /= Math.SQRT2; }
+                    const forwardDelta = (Number(moveForward) - Number(moveBackward)) * effectiveSpeed * delta;
+                    const strafeDelta = (Number(moveRight) - Number(moveLeft)) * effectiveSpeed * delta;
+                    const oldPosition = playerPosition.clone();
+
+                    if (forwardDelta !== 0) controls.moveForward(forwardDelta);
+                    if (strafeDelta !== 0) controls.moveRight(strafeDelta);
+
+                    // Verifica se a posição mudou APÓS o movimento inicial
+                    if (!playerPosition.equals(oldPosition)) {
+                        playerMoved = true; // Houve intenção e aplicação de movimento
+                    }
+
+                    // --- Correção de Colisão (Push-out) ---
+                    const maxCollisionIterations = 4;
+                    for (let iter = 0; iter < maxCollisionIterations; iter++) {
+                        let correctionApplied = false;
+                        const centerWorldX = playerPosition.x + (mazeWidth * wallThickness / 2); const centerWorldZ = playerPosition.z + (mazeDepth * wallThickness / 2);
+                        const centerGridX = Math.floor(centerWorldX / wallThickness); const centerGridZ = Math.floor(centerWorldZ / wallThickness);
+
+                        if (centerGridX < 0 || centerGridX >= mazeWidth || centerGridZ < 0 || centerGridZ >= mazeDepth || maze[centerGridZ] === undefined || maze[centerGridZ][centerGridX] === undefined || maze[centerGridZ][centerGridX] === 1) {
+                            playerPosition.copy(oldPosition); // Reverte totalmente se inválido
+                            playerMoved = false; // Não se moveu de fato se reverteu totalmente
+                            correctionApplied = true; break;
+                        }
+                        if (maze[centerGridZ][centerGridX] === 2) { if (!gameWon) winGame(); break; }
+
+                        const directions = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+                        for (const [dx, dz] of directions) {
+                            const adjacentGridX = centerGridX + dx; const adjacentGridZ = centerGridZ + dz;
+                            if (adjacentGridX >= 0 && adjacentGridX < mazeWidth && adjacentGridZ >= 0 && adjacentGridZ < mazeDepth && maze[adjacentGridZ] !== undefined && maze[adjacentGridZ][adjacentGridX] === 1) {
+                                const wallMinX = adjacentGridX * wallThickness - (mazeWidth * wallThickness / 2); const wallMaxX = wallMinX + wallThickness; const wallMinZ = adjacentGridZ * wallThickness - (mazeDepth * wallThickness / 2); const wallMaxZ = wallMinZ + wallThickness;
+                                const overlapX = Math.max(0, Math.min(playerPosition.x + playerRadius, wallMaxX) - Math.max(playerPosition.x - playerRadius, wallMinX)); const overlapZ = Math.max(0, Math.min(playerPosition.z + playerRadius, wallMaxZ) - Math.max(playerPosition.z - playerRadius, wallMinZ));
+                                if (overlapX > 0 && overlapZ > 0) {
+                                    const penetrationX = (playerPosition.x < (wallMinX + wallMaxX) / 2) ? overlapX : -overlapX; const penetrationZ = (playerPosition.z < (wallMinZ + wallMaxZ) / 2) ? overlapZ : -overlapZ;
+                                    if (Math.abs(penetrationX) < Math.abs(penetrationZ)) { playerPosition.x -= penetrationX; } else { playerPosition.z -= penetrationZ; }
+                                    correctionApplied = true;
+                                    // Se houve correção, significa que o movimento foi parcialmente bloqueado
+                                    // mas ainda pode ter havido algum movimento líquido. playerMoved continua true.
+                                }
+                            }
+                        }
+                        if (!correctionApplied) break;
+                    }
+                    playerPosition.y = playerHeight;
+
+                    // --- Tocar Som de Passos ---
+                    // Verifica se o jogador tentou se mover E se realmente se moveu (não totalmente bloqueado/revertido)
+                    const isTryingToMove = moveForward || moveBackward || moveLeft || moveRight;
+                    if (isTryingToMove && playerMoved && footstepSound && audioInitialized) {
+                        const distanceMovedSinceLastStep = playerPosition.distanceTo(lastStepPosition);
+                        if (distanceMovedSinceLastStep >= stepDistanceThreshold) {
+                            footstepSound.triggerAttackRelease('16n', Tone.now()); // Toca o som do passo (duração curta)
+                            lastStepPosition.copy(playerPosition); // Atualiza a posição do último passo
+                        }
+                    } else if (!isTryingToMove) {
+                        // Se parou de tentar mover, reseta a posição do último passo imediatamente
+                        // para que o próximo movimento toque o som logo
+                        lastStepPosition.copy(playerPosition);
+                    }
+
+
+                    // --- Atualização do Volume do Som da Saída ---
+                    if (exitSoundOsc && audioInitialized && exitSoundOsc.state === "started") {
+                        const distance = playerPosition.distanceTo(exitPosition);
+                        const clampedDistance = Math.max(minSoundDistance, Math.min(distance, maxSoundDistance));
+                        const normalizedProximity = 1.0 - ((clampedDistance - minSoundDistance) / (maxSoundDistance - minSoundDistance));
+                        const volumeDB = maxVolumeDB + normalizedProximity * (minVolumeDB - maxVolumeDB);
+                        exitSoundOsc.volume.linearRampToValueAtTime(volumeDB, Tone.now() + 0.1);
+                    }
+
+                } else if (!gameWon) {
+                     if (controls.getObject()) playerPosition.y = playerHeight;
+                     // Reseta lastStepPosition se o controle for destravado
+                     lastStepPosition.copy(playerPosition);
+                }
+
+                // Renderiza
+                if (renderer && scene && camera) { renderer.render(scene, camera); }
+            } catch (error) {
+                 log("### ERRO CRÍTICO em animate(): " + error.message); console.error("Erro detalhado em animate():", error);
+            }
+        }
+
+        // --- Inicia o Jogo ---
+        init();
+    </script>
+</body>
+</html>
+```
+
+**Mudanças Principais:**
+
+1.  **`footstepSound`:** Variável global para guardar o `Tone.NoiseSynth`.
+2.  **`lastStepPosition`, `stepDistanceThreshold`:** Variáveis para controlar quando tocar o som baseado na distância percorrida.
+3.  **Inicialização (`init`)**:
+    * Criação do `Tone.NoiseSynth` com configurações para simular um passo curto e seco (envelope curto, ruído pink, filtro bandpass). Ajuste o `volume` (-22dB) conforme necessário.
+    * O `footstepSound` também é verificado no listener de clique para garantir que o contexto de áudio esteja pronto.
+4.  **`resetGame`:** Agora também reseta `lastStepPosition` para a nova posição inicial do jogador.
+5.  **Loop `animate`:**
+    * Uma flag `playerMoved` é usada para verificar se a posição do jogador realmente mudou após a tentativa de movimento (antes da correção de colisão).
+    * Após a lógica de movimento e colisão:
+        * Verifica se o jogador está tentando se mover (`isTryingToMove`) E se ele realmente se moveu (`playerMoved`) E se o som está pronto.
+        * Calcula a distância desde o último passo (`distanceMovedSinceLastStep`).
+        * Se a distância for maior ou igual ao `stepDistanceThreshold`, toca o som (`footstepSound.triggerAttackRelease()`) e atualiza `lastStepPosition`.
+        * Se o jogador *parou* de tentar se mover, `lastStepPosition` é atualizado imediatamente para que o próximo passo toque o som sem demora.
+
+Agora, ao andar (W, A, S ou D pressionado e o jogador se movendo), você deverá ouvir sons de passos curtos em intervalos baseados na distância percorri
